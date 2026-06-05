@@ -2,6 +2,8 @@ package com.example.game
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -36,6 +38,21 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlin.random.Random
 
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Info
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import com.example.game.data.PlayerEntity
+
 @Composable
 fun GameScreen(
     viewModel: GameViewModel = viewModel(),
@@ -48,6 +65,10 @@ fun GameScreen(
     val targetTimerFraction by viewModel.targetTimerFraction.collectAsState(initial = 1f)
     val blocks by viewModel.blocks.collectAsState(initial = emptyList())
     val gameOverReason by viewModel.gameOverReason.collectAsState(initial = "")
+    val playerName by viewModel.playerName.collectAsState(initial = "Ninja")
+
+    val statsDashboard by viewModel.statsDashboard.collectAsState()
+    val globalBest = statsDashboard.globalHighestScore
 
     // Background Gradient color schemes based on Theme mode
     val isSystemDark = isSystemInDarkTheme()
@@ -83,12 +104,8 @@ fun GameScreen(
 
         when (gameState) {
             GameState.START -> {
-                val playerName by viewModel.playerName.collectAsState(initial = "Ninja")
                 StartScreenContent(
-                    highScore = highScore,
-                    playerName = playerName,
-                    onNameChange = { viewModel.setPlayerName(it) },
-                    onStartClick = { viewModel.startGame() },
+                    viewModel = viewModel,
                     textColor = primaryTextColor,
                     subColor = secondaryTextColor
                 )
@@ -98,7 +115,8 @@ fun GameScreen(
                     // Header HUD with current score, pause button, and high score
                     GameHeaderHud(
                         score = score,
-                        highScore = highScore,
+                        personalBest = highScore,
+                        globalBest = globalBest,
                         onPauseClick = { viewModel.pauseGame() },
                         textColor = primaryTextColor,
                         subColor = secondaryTextColor
@@ -149,6 +167,7 @@ fun GameScreen(
             }
             GameState.GAME_OVER -> {
                 GameOverScreenContent(
+                    playerName = playerName,
                     score = score,
                     highScore = highScore,
                     reason = gameOverReason,
@@ -165,7 +184,8 @@ fun GameScreen(
 @Composable
 fun GameHeaderHud(
     score: Int,
-    highScore: Int,
+    personalBest: Int,
+    globalBest: Int,
     onPauseClick: () -> Unit,
     textColor: Color,
     subColor: Color
@@ -208,27 +228,51 @@ fun GameHeaderHud(
 
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = "BEST SCORE",
-                fontSize = 11.sp,
+                text = "PERSONAL BEST",
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = subColor,
-                letterSpacing = 1.5.sp
+                letterSpacing = 1.sp
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Star,
-                    contentDescription = "High Score Star",
+                    contentDescription = "Personal Star",
                     tint = Color(0xFFF59E0B),
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(13.dp)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = "$highScore",
-                    fontSize = 20.sp,
+                    text = "$personalBest",
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = textColor,
                     modifier = Modifier.testTag("high_score_hud")
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "GLOBAL BEST",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = Color(0xFF0A84FF),
+                letterSpacing = 1.sp
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = "Global Star",
+                    tint = Color(0xFF0A84FF),
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                    text = "$globalBest",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
                 )
             }
         }
@@ -410,28 +454,40 @@ fun AmbientDustedStars() {
 
 @Composable
 fun StartScreenContent(
-    highScore: Int,
-    playerName: String,
-    onNameChange: (String) -> Unit,
-    onStartClick: () -> Unit,
+    viewModel: GameViewModel,
     textColor: Color,
     subColor: Color
 ) {
+    val players by viewModel.players.collectAsState()
+    val activePlayer by viewModel.activePlayer.collectAsState()
+    val statsDashboard by viewModel.statsDashboard.collectAsState()
+
+    var activeTab by remember { mutableStateOf(0) } // 0 = PLAYERS, 1 = LEADERBOARD, 2 = STATS
+
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf<PlayerEntity?>(null) }
+    var showDeleteDialog by remember { mutableStateOf<PlayerEntity?>(null) }
+
+    var newPlayerName by remember { mutableStateOf("") }
+    var editPlayerNameText by remember { mutableStateOf("") }
+
+    val sdf = remember { SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Big branding logo banner
+        // App Header Banner
+        Spacer(modifier = Modifier.height(12.dp))
         Box(
             modifier = Modifier
-                .size(100.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .size(76.dp)
+                .clip(RoundedCornerShape(22.dp))
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(Color(0xFFFFD60A), Color(0xFFFF453A), Color(0xFFBF5AF2))
+                        colors = listOf(Color(0xFFFFD60A), Color(0xFFFF453A), Color(0xFF03A9F4))
                     )
                 ),
             contentAlignment = Alignment.Center
@@ -441,16 +497,16 @@ fun StartScreenContent(
                 contentDescription = "Game Logo Core",
                 tint = Color.White,
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(42.dp)
                     .graphicsLayer(rotationZ = 12f)
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             text = "COLOR RUSH",
-            fontSize = 38.sp,
+            fontSize = 32.sp,
             fontWeight = FontWeight.Black,
             fontFamily = FontFamily.SansSerif,
             color = textColor,
@@ -460,123 +516,666 @@ fun StartScreenContent(
 
         Text(
             text = "THE REACTION ARCADE CLASSIC",
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF30D158),
-            letterSpacing = 3.sp
+            letterSpacing = 2.5.sp
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Elegant Username Input Form
-        OutlinedTextField(
-            value = playerName,
-            onValueChange = onNameChange,
-            label = { Text("ENTER YOUR NAME", fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) },
-            singleLine = true,
+        // Navigation Tabs using Segmented Chips or sleek Buttons
+        Row(
             modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .testTag("player_name_input"),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = textColor,
-                unfocusedTextColor = textColor,
-                focusedBorderColor = Color(0xFF0A84FF),
-                unfocusedBorderColor = textColor.copy(alpha = 0.2f),
-                focusedLabelColor = Color(0xFF0A84FF),
-                unfocusedLabelColor = subColor
-            ),
-            shape = RoundedCornerShape(16.dp)
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // High Score Record Block
-        val cleanLabel = if (playerName.trim().isNotEmpty()) playerName.uppercase() else "PERSONAL"
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.05f)),
-            modifier = Modifier.fillMaxWidth(0.85f),
-            border = BorderStroke(1.dp, textColor.copy(alpha = 0.1f))
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(textColor.copy(alpha = 0.05f))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "Trophy Sign",
-                    tint = Color(0xFFFFD60A),
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
+            val tabs = listOf("🎮 PLAYERS", "🏆 RANKINGS", "📊 METRICS")
+            tabs.forEachIndexed { index, title ->
+                val isSelected = activeTab == index
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) Color(0xFF0A84FF) else Color.Transparent)
+                        .clickable { activeTab = index }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "$cleanLabel RECORD",
-                        fontSize = 10.sp,
-                        color = subColor,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "$highScore POINTS",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = textColor
+                        text = title,
+                        color = if (isSelected) Color.White else subColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Instructions summary panel
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.03f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "HOW TO PLAY",
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = subColor,
-                    letterSpacing = 1.5.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                
-                InstructionRow(num = "1", text = "Tap falling elements matching the target color at the top.")
-                InstructionRow(num = "2", text = "Tapping wrong colors causes immediate terminal game-over.")
-                InstructionRow(num = "3", text = "Never let correct-colored blocks slip past the bottom screen.")
-                InstructionRow(num = "4", text = "Every 10 points speeds up gravitation velocity!")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(30.dp))
-
-        Button(
-            onClick = onStartClick,
+        // Master Tab Content Container
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
-                .testTag("start_game_button"),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF0A84FF)
-            ),
-            shape = RoundedCornerShape(16.dp),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                .weight(1f)
         ) {
+            when (activeTab) {
+                0 -> {
+                    // PLAYERS TAB
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "SELECT PLAYER PROFILE",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = subColor,
+                                letterSpacing = 1.sp
+                            )
+                            
+                            // Add button
+                            OutlinedButton(
+                                onClick = {
+                                    newPlayerName = ""
+                                    showAddDialog = true
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF30D158)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF30D158)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .height(34.dp)
+                                    .testTag("add_player_button")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("ADD", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (players.isEmpty()) {
+                            // Empty State
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.02f)),
+                                border = BorderStroke(1.dp, textColor.copy(alpha = 0.08f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = subColor.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "No players registered.",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = textColor
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Tap 'ADD' to build your game profile!",
+                                        fontSize = 12.sp,
+                                        color = subColor,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = PaddingValues(bottom = 12.dp)
+                            ) {
+                                items(players) { player ->
+                                    val isActive = activePlayer?.id == player.id
+                                    val borderStroke = if (isActive) {
+                                        BorderStroke(2.dp, Color(0xFF0A84FF))
+                                    } else {
+                                        BorderStroke(1.dp, textColor.copy(alpha = 0.08f))
+                                    }
+                                    val cardBgColor = if (isActive) {
+                                        Color(0xFF0A84FF).copy(alpha = 0.05f)
+                                    } else {
+                                        textColor.copy(alpha = 0.03f)
+                                    }
+
+                                    Card(
+                                        onClick = { viewModel.selectPlayer(player.id) },
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                        border = borderStroke,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("player_card_${player.username}")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Avatar badge
+                                            val nameLetter = player.username.firstOrNull()?.toString()?.uppercase() ?: "P"
+                                            val avatarColors = listOf(Color(0xFF0A84FF), Color(0xFF30D158), Color(0xFFFFD60A), Color(0xFFFF453A), Color(0xFFBF5AF2))
+                                            val colorIndex = Math.abs(player.username.hashCode()) % avatarColors.size
+                                            val avatarColor = avatarColors[colorIndex]
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(avatarColor.copy(alpha = 0.15f))
+                                                    .border(1.5.dp, avatarColor, CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = nameLetter,
+                                                    color = avatarColor,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Black
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(12.dp))
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = player.username,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = textColor
+                                                    )
+                                                    if (isActive) {
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(Color(0xFF0A84FF))
+                                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "ACTIVE",
+                                                                color = Color.White,
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Best: ${player.highestScore} pts  •  Played: ${player.totalGamesPlayed}",
+                                                    fontSize = 12.sp,
+                                                    color = subColor
+                                                )
+                                                Text(
+                                                    text = "Last: " + sdf.format(Date(player.lastPlayedTimestamp)),
+                                                    fontSize = 10.sp,
+                                                    color = subColor.copy(alpha = 0.7f),
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+
+                                            // Action Buttons inside profile item
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                IconButton(
+                                                    onClick = {
+                                                        editPlayerNameText = player.username
+                                                        showEditDialog = player
+                                                    },
+                                                    modifier = Modifier.size(36.dp).testTag("edit_player_${player.username}")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Edit,
+                                                        contentDescription = "Edit Profile Name",
+                                                        tint = Color(0xFFFFD60A),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { showDeleteDialog = player },
+                                                    modifier = Modifier.size(36.dp).testTag("delete_player_${player.username}")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "Delete Profile",
+                                                        tint = Color(0xFFFF453A),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bottom major Start button
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.startGame() },
+                            enabled = activePlayer != null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .testTag("start_game_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF0A84FF),
+                                disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                        ) {
+                            val activeLabel = activePlayer?.username?.uppercase() ?: "NONE"
+                            Text(
+                                text = "PLAY AS $activeLabel ⚡",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+
+                1 -> {
+                    // LEADERBOARD TAB
+                    val sortedPlayers = players.sortedByDescending { it.highestScore }
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Text(
+                            text = "LEADERBOARD STATUS",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = subColor,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
+                        if (sortedPlayers.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No high scores recorded yet.", color = subColor)
+                            }
+                        } else {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.02f)),
+                                border = BorderStroke(1.dp, textColor.copy(alpha = 0.08f)),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    // Header Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("RANK", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor, modifier = Modifier.width(50.dp))
+                                        Text("PLAYER NAME", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor, modifier = Modifier.weight(1f))
+                                        Text("HIGH SCORE", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor)
+                                    }
+
+                                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(textColor.copy(alpha = 0.08f)))
+
+                                    LazyColumn(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                    ) {
+                                        itemsIndexed(sortedPlayers) { index, player ->
+                                            val isCurrentActive = activePlayer?.id == player.id
+                                            val rankNum = index + 1
+                                            val rankBadge = when (rankNum) {
+                                                1 -> "🥇"
+                                                2 -> "🥈"
+                                                3 -> "🥉"
+                                                else -> "#$rankNum"
+                                            }
+
+                                            val rowBg = if (isCurrentActive) {
+                                                Color(0xFF0A84FF).copy(alpha = 0.1f)
+                                            } else {
+                                                Color.Transparent
+                                            }
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(rowBg)
+                                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Rank
+                                                Text(
+                                                    text = rankBadge,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (rankNum <= 3) Color.Unspecified else subColor,
+                                                    modifier = Modifier.width(50.dp)
+                                                )
+
+                                                // Name
+                                                Text(
+                                                    text = player.username,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = if (isCurrentActive) FontWeight.Bold else FontWeight.Medium,
+                                                    color = textColor,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+
+                                                // Score
+                                                Text(
+                                                    text = "${player.highestScore}",
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (rankNum == 1) Color(0xFFFFD60A) else textColor
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                2 -> {
+                    // STATS/METRICS TAB
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Text(
+                            text = "GLOBAL METRICS DASHBOARD",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = subColor,
+                            letterSpacing = 1.sp
+                        )
+
+                        // 2x2 Grid using standard layout
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                DashboardMetricCard(
+                                    title = "TOTAL PLAYERS",
+                                    value = "${statsDashboard.totalPlayers}",
+                                    icon = "👥",
+                                    color = Color(0xFF0A84FF),
+                                    textColor = textColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                DashboardMetricCard(
+                                    title = "GLOBAL BEST",
+                                    value = "${statsDashboard.globalHighestScore}",
+                                    icon = "👑",
+                                    color = Color(0xFFFFD60A),
+                                    textColor = textColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                DashboardMetricCard(
+                                    title = "GAMES PLAYED",
+                                    value = "${statsDashboard.totalGamesPlayed}",
+                                    icon = "🎮",
+                                    color = Color(0xFF30D158),
+                                    textColor = textColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                val formattedAvg = "%.1f".format(statsDashboard.averageScore)
+                                DashboardMetricCard(
+                                    title = "AVERAGE RATING",
+                                    value = formattedAvg,
+                                    icon = "🏅",
+                                    color = Color(0xFFBF5AF2),
+                                    textColor = textColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Top Performance Leaders
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.02f)),
+                            border = BorderStroke(1.dp, textColor.copy(alpha = 0.08f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = "🔥 SUPREME LEADERSHIP (TOP 5)",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = subColor,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+
+                                statsDashboard.top5Players.forEachIndexed { idx, player ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "#${idx+1}  ${player.username}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = textColor
+                                        )
+                                        Text(
+                                            text = "${player.highestScore} pts",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFF453A)
+                                        )
+                                    }
+                                }
+
+                                if (statsDashboard.top5Players.isEmpty()) {
+                                    Text(
+                                        text = "No registers found.",
+                                        fontSize = 12.sp,
+                                        color = subColor
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(20.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    // Dialogs
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add Player Profile", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Enter a unique username for this player:", fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newPlayerName,
+                        onValueChange = { newPlayerName = it.take(15) },
+                        placeholder = { Text("e.g. Speedster") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("add_player_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newPlayerName.isNotBlank()) {
+                            viewModel.createPlayer(newPlayerName)
+                            showAddDialog = false
+                        }
+                    },
+                    modifier = Modifier.testTag("add_player_confirm_button")
+                ) {
+                    Text("CREATE")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
+
+    if (showEditDialog != null) {
+        val player = showEditDialog!!
+        AlertDialog(
+            onDismissRequest = { showEditDialog = null },
+            title = { Text("Rename Profile", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Enter a new username for ${player.username}:", fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = editPlayerNameText,
+                        onValueChange = { editPlayerNameText = it.take(15) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("edit_player_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (editPlayerNameText.isNotBlank()) {
+                            viewModel.editPlayerName(player.id, editPlayerNameText)
+                            showEditDialog = null
+                        }
+                    },
+                    modifier = Modifier.testTag("edit_player_confirm_button")
+                ) {
+                    Text("RENAME")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = null }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog != null) {
+        val player = showDeleteDialog!!
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = null },
+            title = { Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF453A))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Delete Profile?", fontWeight = FontWeight.Bold)
+            } },
+            text = {
+                Text("Are you sure you want to delete profile '${player.username}'? All high scores and history will be permanently lost.", fontSize = 14.sp)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePlayer(player.id)
+                        showDeleteDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF453A)),
+                    modifier = Modifier.testTag("delete_player_confirm_button")
+                ) {
+                    Text("DELETE", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = null }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun DashboardMetricCard(
+    title: String,
+    value: String,
+    icon: String,
+    color: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.04f)),
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.08f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor.copy(alpha = 0.6f)
+                )
+                Text(text = icon, fontSize = 14.sp)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "START RUSH",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                letterSpacing = 1.sp
+                text = value,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                color = color
             )
         }
     }
@@ -718,6 +1317,7 @@ fun PausedOverlay(
 
 @Composable
 fun GameOverScreenContent(
+    playerName: String,
     score: Int,
     highScore: Int,
     reason: String,
@@ -759,6 +1359,17 @@ fun GameOverScreenContent(
             color = Color(0xFFFF453A),
             fontFamily = FontFamily.SansSerif,
             letterSpacing = 1.sp
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "PLAYER: ${playerName.uppercase()}",
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = textColor.copy(alpha = 0.8f),
+            letterSpacing = 1.5.sp
         )
 
         Spacer(modifier = Modifier.height(10.dp))

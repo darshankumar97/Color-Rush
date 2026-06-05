@@ -4,10 +4,18 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.game.data.AppDatabase
+import com.example.game.data.PlayerEntity
+import com.example.game.data.PlayerRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -22,7 +30,17 @@ data class FallingBlock(
     val isTapped: Boolean = false
 )
 
+data class StatsDashboard(
+    val totalPlayers: Int = 0,
+    val globalHighestScore: Int = 0,
+    val totalGamesPlayed: Int = 0,
+    val averageScore: Double = 0.0,
+    val top5Players: List<PlayerEntity> = emptyList()
+)
+
 class GameViewModel(application: Application) : AndroidViewModel(application) {
+    private val db = AppDatabase.getDatabase(application)
+    private val repository = PlayerRepository(db.playerDao())
     private val prefs = application.getSharedPreferences("color_rush_prefs", Context.MODE_PRIVATE)
     private val soundSynth = RetroSoundSynth()
     private val vibrationHelper = VibrationHelper(application)
@@ -51,6 +69,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _gameOverReason = MutableStateFlow("")
     val gameOverReason: StateFlow<String> = _gameOverReason.asStateFlow()
 
+    // Database Flows
+    val players: StateFlow<List<PlayerEntity>> = repository.allPlayers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _activePlayerId = MutableStateFlow<String?>(null)
+    val activePlayerId: StateFlow<String?> = _activePlayerId.asStateFlow()
+
+    val activePlayer: StateFlow<PlayerEntity?> = combine(repository.allPlayers, _activePlayerId) { list, id ->
+        list.find { it.id == id } ?: list.firstOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val statsDashboard: StateFlow<StatsDashboard> = repository.allPlayers.map { list ->
+        val totalPlayers = list.size
+        val globalHighestScore = list.maxOfOrNull { it.highestScore } ?: 0
+        val totalGames = list.sumOf { it.totalGamesPlayed }
+        val averageHighScore = if (list.isNotEmpty()) list.map { it.highestScore }.average() else 0.0
+        val top5 = list.sortedByDescending { it.highestScore }.take(5)
+        StatsDashboard(
+            totalPlayers = totalPlayers,
+            globalHighestScore = globalHighestScore,
+            totalGamesPlayed = totalGames,
+            averageScore = averageHighScore,
+            top5Players = top5
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StatsDashboard())
+
     private var gameJob: Job? = null
     private var spawnAccumulator = 0f
     private var targetRotationAccumulator = 0f
@@ -61,19 +105,85 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lastTickTime = 0L
 
     init {
-        val lastSavedName = prefs.getString("last_player_name", "Ninja") ?: "Ninja"
-        _playerName.value = lastSavedName
-        _highScore.value = prefs.getInt("high_score_${lastSavedName.trim().lowercase()}", 0)
+        viewModelScope.launch {
+            try {
+                // Ensure there is at least one profile upon first-time launch
+                val list = repository.allPlayers.first()
+                if (list.isEmpty()) {
+                    val defaultNinja = PlayerEntity(
+                        id = UUID.randomUUID().toString(),
+                        username = "Ninja",
+                        highestScore = 0,
+                        totalGamesPlayed = 0,
+                        lastPlayedTimestamp = System.currentTimeMillis()
+                    )
+                    repository.insertPlayer(defaultNinja)
+                    _activePlayerId.value = defaultNinja.id
+                } else {
+                    val lastSavedId = prefs.getString("last_active_player_id", null)
+                    if (lastSavedId != null && list.any { it.id == lastSavedId }) {
+                        _activePlayerId.value = lastSavedId
+                    } else {
+                        _activePlayerId.value = list.firstOrNull()?.id
+                    }
+                }
+            } catch (e: Exception) {
+                // fallback gracefully
+            }
+
+            // Bind values dynamically
+            activePlayer.collect { player ->
+                if (player != null) {
+                    _playerName.value = player.username
+                    _highScore.value = player.highestScore
+                    prefs.edit().putString("last_active_player_id", player.id).apply()
+                }
+            }
+        }
     }
 
-    fun setPlayerName(name: String) {
-        val cleanName = name.take(15) // limit name size to prevent overflow
-        _playerName.value = cleanName
-        prefs.edit().putString("last_player_name", cleanName).apply()
-        
-        val key = "high_score_${cleanName.trim().lowercase()}"
-        _highScore.value = prefs.getInt(key, 0)
+    fun selectPlayer(id: String) {
+        _activePlayerId.value = id
     }
+
+    fun createPlayer(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val newPlayer = PlayerEntity(
+                id = UUID.randomUUID().toString(),
+                username = name.trim().take(15),
+                highestScore = 0,
+                totalGamesPlayed = 0,
+                lastPlayedTimestamp = System.currentTimeMillis()
+            )
+            repository.insertPlayer(newPlayer)
+            _activePlayerId.value = newPlayer.id
+        }
+    }
+
+    fun deletePlayer(id: String) {
+        viewModelScope.launch {
+            repository.deletePlayer(id)
+            if (_activePlayerId.value == id) {
+                _activePlayerId.value = null
+            }
+        }
+    }
+
+    fun editPlayerName(id: String, newName: String) {
+        if (newName.isBlank()) return
+        viewModelScope.launch {
+            val existing = repository.getPlayerById(id)
+            if (existing != null) {
+                val updated = existing.copy(
+                    username = newName.trim().take(15),
+                    lastPlayedTimestamp = System.currentTimeMillis()
+                )
+                repository.insertPlayer(updated)
+            }
+        }
+    }
+
 
     fun startGame() {
         _score.value = 0
@@ -210,8 +320,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             // Update in-memory and shared config high score
             if (newScore > _highScore.value) {
                 _highScore.value = newScore
-                val key = "high_score_${_playerName.value.trim().lowercase()}"
-                prefs.edit().putInt(key, newScore).apply()
+                val player = activePlayer.value
+                if (player != null) {
+                    viewModelScope.launch {
+                        repository.insertPlayer(player.copy(highestScore = newScore))
+                    }
+                }
             }
 
             // Remove tapped block from list and play effects
@@ -246,6 +360,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _gameState.value = GameState.GAME_OVER
         soundSynth.playTapWrong()
         vibrationHelper.vibrateWrong()
+
+        val player = activePlayer.value
+        if (player != null) {
+            viewModelScope.launch {
+                val finalHighScore = if (_score.value > player.highestScore) _score.value else player.highestScore
+                repository.insertPlayer(
+                    player.copy(
+                        highestScore = finalHighScore,
+                        totalGamesPlayed = player.totalGamesPlayed + 1,
+                        lastPlayedTimestamp = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
     }
 }
 
