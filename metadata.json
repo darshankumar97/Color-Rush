@@ -1,0 +1,6 @@
+{
+  "name": "Color Rush",
+  "description": "An addictive fast-paced reactive arcade game where you tap falling blocks matching the target color.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
