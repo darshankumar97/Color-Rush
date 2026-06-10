@@ -111,7 +111,12 @@ fun GameScreen(
                 )
             }
             GameState.PLAYING, GameState.PAUSED -> {
-                Column(modifier = Modifier.fillMaxSize()) {
+                val gameBlur = if (gameState == GameState.PAUSED) 4.dp else 0.dp
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(gameBlur)
+                ) {
                     // Header HUD with current score, pause button, and high score
                     GameHeaderHud(
                         score = score,
@@ -253,7 +258,7 @@ fun GameHeaderHud(
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "GLOBAL BEST",
+                text = "ALL-TIME BEST",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
@@ -263,7 +268,7 @@ fun GameHeaderHud(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Star,
-                    contentDescription = "Global Star",
+                    contentDescription = "All-Time Star",
                     tint = Color(0xFF0A84FF),
                     modifier = Modifier.size(13.dp)
                 )
@@ -534,7 +539,7 @@ fun StartScreenContent(
                 .padding(4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            val tabs = listOf("🎮 PLAYERS", "🏆 RANKINGS", "📊 METRICS")
+            val tabs = listOf("👤 PROFILES", "🏆 HALL OF FAME", "🏅 MILESTONES")
             tabs.forEachIndexed { index, title ->
                 val isSelected = activeTab == index
                 Box(
@@ -806,17 +811,23 @@ fun StartScreenContent(
                 }
 
                 1 -> {
-                    // LEADERBOARD TAB
+                    // LOCAL HALL OF FAME TAB
                     val sortedPlayers = players.sortedByDescending { it.highestScore }
                     Column(modifier = Modifier.fillMaxSize()) {
                         Text(
-                            text = "LEADERBOARD STATUS",
+                            text = "🏆 OFFLINE HALL OF FAME",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = subColor,
+                            color = Color(0xFFFFD60A),
                             letterSpacing = 1.sp,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                        Text(
+                            text = "Top scores achieved by local offline profiles.",
+                            fontSize = 11.sp,
+                            color = subColor,
+                            modifier = Modifier.padding(bottom = 10.dp)
                         )
 
                         if (sortedPlayers.isEmpty()) {
@@ -842,8 +853,8 @@ fun StartScreenContent(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text("RANK", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor, modifier = Modifier.width(50.dp))
-                                        Text("PLAYER NAME", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor, modifier = Modifier.weight(1f))
-                                        Text("HIGH SCORE", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor)
+                                        Text("LOCAL PROFILE", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor, modifier = Modifier.weight(1f))
+                                        Text("BEST RECORD", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = subColor)
                                     }
 
                                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(textColor.copy(alpha = 0.08f)))
@@ -874,7 +885,7 @@ fun StartScreenContent(
                                                     .fillMaxWidth()
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(rowBg)
-                                                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                                                    .padding(horizontal = 8.dp, vertical = 8.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 // Rank
@@ -886,18 +897,42 @@ fun StartScreenContent(
                                                     modifier = Modifier.width(50.dp)
                                                 )
 
-                                                // Name
-                                                Text(
-                                                    text = player.username,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = if (isCurrentActive) FontWeight.Bold else FontWeight.Medium,
-                                                    color = textColor,
-                                                    modifier = Modifier.weight(1f)
-                                                )
+                                                // Name & secondary details
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = player.username,
+                                                            fontSize = 14.sp,
+                                                            fontWeight = if (isCurrentActive) FontWeight.Bold else FontWeight.Medium,
+                                                            color = textColor
+                                                        )
+                                                        if (isCurrentActive) {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(4.dp))
+                                                                    .background(Color(0xFF0A84FF))
+                                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "YOU",
+                                                                    color = Color.White,
+                                                                    fontSize = 7.sp,
+                                                                    fontWeight = FontWeight.Black
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = "${player.totalGamesPlayed} sessions played",
+                                                        fontSize = 11.sp,
+                                                        color = subColor
+                                                    )
+                                                }
 
                                                 // Score
                                                 Text(
-                                                    text = "${player.highestScore}",
+                                                    text = "${player.highestScore} pts",
                                                     fontSize = 15.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (rankNum == 1) Color(0xFFFFD60A) else textColor
@@ -912,15 +947,65 @@ fun StartScreenContent(
                 }
 
                 2 -> {
-                    // STATS/METRICS TAB
+                    // ACTIVE PROFILE PROGRESS & METRICS TAB
+                    val activeHighScore = activePlayer?.highestScore ?: 0
+                    val activeGamesPlayed = activePlayer?.totalGamesPlayed ?: 0
+
+                    val achievementsList = listOf(
+                        GameMilestone(
+                            title = "First Steps",
+                            description = "Complete 1 gameplay session.",
+                            icon = "🏁",
+                            isUnlocked = activeGamesPlayed >= 1
+                        ),
+                        GameMilestone(
+                            title = "Speed Novice",
+                            description = "Reach a score of 10 points on any run.",
+                            icon = "🥉",
+                            isUnlocked = activeHighScore >= 10
+                        ),
+                        GameMilestone(
+                            title = "Double Digits",
+                            description = "Reach a score of 20 points on any run.",
+                            icon = "🥈",
+                            isUnlocked = activeHighScore >= 20
+                        ),
+                        GameMilestone(
+                            title = "Color Veteran",
+                            description = "Complete 5 total gameplay sessions.",
+                            icon = "🔥",
+                            isUnlocked = activeGamesPlayed >= 5
+                        ),
+                        GameMilestone(
+                            title = "Blitz Commander",
+                            description = "Reach a score of 35 points.",
+                            icon = "🥇",
+                            isUnlocked = activeHighScore >= 35
+                        ),
+                        GameMilestone(
+                            title = "Arcade Legend",
+                            description = "Reach a score of 50 points.",
+                            icon = "👑",
+                            isUnlocked = activeHighScore >= 50
+                        ),
+                        GameMilestone(
+                            title = "Unstoppable Force",
+                            description = "Complete 15 total gameplay sessions.",
+                            icon = "🌌",
+                            isUnlocked = activeGamesPlayed >= 15
+                        )
+                    )
+
+                    val unlockedCount = achievementsList.count { it.isUnlocked }
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "GLOBAL METRICS DASHBOARD",
+                            text = "ACTIVE PROFILE PROGRESS & ACHIEVEMENTS",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -928,98 +1013,117 @@ fun StartScreenContent(
                             letterSpacing = 1.sp
                         )
 
-                        // 2x2 Grid using standard layout
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                DashboardMetricCard(
-                                    title = "TOTAL PLAYERS",
-                                    value = "${statsDashboard.totalPlayers}",
-                                    icon = "👥",
-                                    color = Color(0xFF0A84FF),
-                                    textColor = textColor,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                DashboardMetricCard(
-                                    title = "GLOBAL BEST",
-                                    value = "${statsDashboard.globalHighestScore}",
-                                    icon = "👑",
-                                    color = Color(0xFFFFD60A),
-                                    textColor = textColor,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                DashboardMetricCard(
-                                    title = "GAMES PLAYED",
-                                    value = "${statsDashboard.totalGamesPlayed}",
-                                    icon = "🎮",
-                                    color = Color(0xFF30D158),
-                                    textColor = textColor,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                val formattedAvg = "%.1f".format(statsDashboard.averageScore)
-                                DashboardMetricCard(
-                                    title = "AVERAGE RATING",
-                                    value = formattedAvg,
-                                    icon = "🏅",
-                                    color = Color(0xFFBF5AF2),
-                                    textColor = textColor,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // Top Performance Leaders
+                        // Progress Stats Row
                         Card(
                             shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.02f)),
+                            colors = CardDefaults.cardColors(containerColor = textColor.copy(alpha = 0.03f)),
                             border = BorderStroke(1.dp, textColor.copy(alpha = 0.08f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    text = "🔥 SUPREME LEADERSHIP (TOP 5)",
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = subColor,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "SELECTED PROFILE",
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = subColor
+                                    )
+                                    Text(
+                                        text = activePlayer?.username ?: "Ninja",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = textColor
+                                    )
+                                }
 
-                                statsDashboard.top5Players.forEachIndexed { idx, player ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(
-                                            text = "#${idx+1}  ${player.username}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = textColor
+                                            text = "HIGH SCORE",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = subColor
                                         )
                                         Text(
-                                            text = "${player.highestScore} pts",
-                                            fontSize = 13.sp,
+                                            text = "$activeHighScore",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFFFFD60A)
+                                        )
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "RUNS PLAYED",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF453A)
+                                            color = subColor
+                                        )
+                                        Text(
+                                            text = "$activeGamesPlayed",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF30D158)
                                         )
                                     }
                                 }
-
-                                if (statsDashboard.top5Players.isEmpty()) {
-                                    Text(
-                                        text = "No registers found.",
-                                        fontSize = 12.sp,
-                                        color = subColor
-                                    )
-                                }
                             }
                         }
-                        
-                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Summary of milestones unlocked
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0A84FF).copy(alpha = 0.06f)),
+                            border = BorderStroke(1.dp, Color(0xFF0A84FF).copy(alpha = 0.2f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "🏆 MILESTONES UNLOCKED",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0A84FF)
+                                )
+                                Text(
+                                    text = "$unlockedCount / ${achievementsList.size} COMPLETED",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color(0xFF0A84FF)
+                                )
+                            }
+                        }
+
+                        // Milestones list
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            for (milestone in achievementsList) {
+                                MilestoneItemCard(
+                                    achievement = milestone,
+                                    textColor = textColor,
+                                    subColor = subColor
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }
@@ -1222,8 +1326,7 @@ fun PausedOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f))
-            .blur(8.dp)
+            .background(Color.Black.copy(alpha = 0.55f))
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -1517,6 +1620,88 @@ fun GameOverScreenContent(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
             )
+        }
+    }
+}
+
+// Data model for offline-first single-player milestone tracking
+data class GameMilestone(
+    val title: String,
+    val description: String,
+    val icon: String,
+    val isUnlocked: Boolean
+)
+
+@Composable
+fun MilestoneItemCard(
+    achievement: GameMilestone,
+    textColor: Color,
+    subColor: Color
+) {
+    val opacity = if (achievement.isUnlocked) 1f else 0.45f
+    val cardBg = if (achievement.isUnlocked) textColor.copy(alpha = 0.05f) else textColor.copy(alpha = 0.02f)
+    val cardBorderColor = if (achievement.isUnlocked) Color(0xFF30D158).copy(alpha = 0.35f) else textColor.copy(alpha = 0.06f)
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(1.dp, cardBorderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer(alpha = opacity)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Milestone Icon/Badge
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (achievement.isUnlocked) Color(0xFF30D158).copy(alpha = 0.12f) else textColor.copy(alpha = 0.05f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = achievement.icon,
+                    fontSize = 20.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Milestone Details
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = achievement.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+                Text(
+                    text = achievement.description,
+                    fontSize = 11.sp,
+                    color = subColor
+                )
+            }
+
+            // Milestone Unlock State Badge
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (achievement.isUnlocked) Color(0xFF30D158).copy(alpha = 0.15f) else textColor.copy(alpha = 0.08f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = if (achievement.isUnlocked) "UNLOCKED" else "LOCKED",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (achievement.isUnlocked) Color(0xFF30D158) else subColor
+                )
+            }
         }
     }
 }
